@@ -1,0 +1,6 @@
+{
+  "name": "Dealer Profit Margin Calculator",
+  "description": "An interactive commercial dashboard to calculate monthly purchase volumes, dealer discounts, cash incentives, and automatic profit margins under dealer pricing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
