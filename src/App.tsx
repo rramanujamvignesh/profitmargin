@@ -113,6 +113,37 @@ export default function App() {
   };
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // Initial check for display standalone mode
+    if (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone) {
+      setIsInstallable(false);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`[PWA] Install status selected by user: ${outcome}`);
+    setIsInstallable(false);
+    setDeferredPrompt(null);
+  };
+
   const [customSellingPrices, setCustomSellingPrices] = useState<Record<string, number>>({});
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [pricingImportStatus, setPricingImportStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
@@ -1025,6 +1056,16 @@ export default function App() {
               <Camera className="w-3.5 h-3.5" />
               Share screenshot
             </button>
+            {isInstallable && (
+              <button
+                onClick={handleInstallApp}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer uppercase tracking-wider animate-pulse"
+                title="Install this calculator as a native mobile/desktop application"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Install App
+              </button>
+            )}
           </div>
         </div>
 

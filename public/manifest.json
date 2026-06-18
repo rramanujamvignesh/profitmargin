@@ -1,0 +1,33 @@
+{
+  "name": "Dealer Profit Margin Calculator",
+  "short_name": "Dealer Calc",
+  "description": "An interactive commercial dashboard to calculate monthly purchase volumes, dealer discounts, cash incentives, and automatic profit margins under dealer pricing.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fdfcfb",
+  "theme_color": "#7a816c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["business", "finance", "utilities"],
+  "screenshots": []
+}

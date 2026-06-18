@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="sage-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8a927c" />
+      <stop offset="100%" stop-color="#646b57" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="15" flood-color="#2c3026" flood-opacity="0.3" filter-units="userSpaceOnUse" />
+    </filter>
+  </defs>
+  
+  <!-- Rounded Square App Background -->
+  <rect width="512" height="512" rx="128" fill="url(#sage-grad)" />
+  
+  <!-- Outer Decorative Ring -->
+  <rect x="32" y="32" width="448" height="448" rx="104" fill="none" stroke="#ffffff" stroke-width="8" opacity="0.12" />
+
+  <!-- Shadowed Main Card Grid -->
+  <g filter="url(#shadow)" transform="translate(106, 106)">
+    <!-- Main base -->
+    <rect x="0" y="0" width="300" height="300" rx="44" fill="#ffffff" />
+    
+    <!-- Calculator Screen -->
+    <rect x="28" y="28" width="244" height="68" rx="14" fill="#f5f2ed" />
+    
+    <!-- Screen Accent Lines containing mock profit trend bar and margin numbers -->
+    <rect x="46" y="46" width="94" height="11" rx="5.5" fill="#7a816c" opacity="0.85" />
+    <rect x="46" y="65" width="58" height="9" rx="4.5" fill="#8c847c" opacity="0.65" />
+    <circle cx="224" cy="62" r="15" fill="#7a816c" />
+    
+    <!-- Row 1 Buttons -->
+    <rect x="28" y="118" width="48" height="48" rx="14" fill="#ebede7" />
+    <rect x="92" y="118" width="48" height="48" rx="14" fill="#ebede7" />
+    <rect x="156" y="118" width="48" height="48" rx="14" fill="#ebede7" />
+    <rect x="220" y="118" width="48" height="48" rx="14" fill="#7a816c" />
+    
+    <!-- Row 2 Buttons -->
+    <rect x="28" y="182" width="48" height="48" rx="14" fill="#ebede7" />
+    <rect x="92" y="182" width="48" height="48" rx="14" fill="#ebede7" />
+    <rect x="156" y="182" width="48" height="48" rx="14" fill="#ebede7" />
+    <rect x="220" y="182" width="48" height="48" rx="14" fill="#4a443f" />
+    
+    <!-- Row 3 Integrated/Wide Button -->
+    <rect x="28" y="246" width="48" height="32" rx="10" fill="#ebede7" />
+    <rect x="92" y="246" width="48" height="32" rx="10" fill="#ebede7" />
+    <rect x="156" y="246" width="112" height="32" rx="10" fill="#7a816c" />
+    
+    <!-- Plus symbol in sage-green button -->
+    <path d="M239 142h10v2h-10zm4-4v10h-2v-10z" fill="#ffffff" />
+    
+    <!-- Decorative Trend arrow in merged button -->
+    <path d="M190 258h28m0 0l-6-6m6 6l-6 6" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <!-- Percentage symbol in dark button -->
+    <circle cx="238" cy="201" r="3.5" fill="#ffffff" />
+    <line x1="235" y1="211" x2="253" y2="193" stroke="#ffffff" stroke-width="2.5" />
+    <circle cx="250" cy="207" r="3.5" fill="#ffffff" />
+  </g>
+</svg>
