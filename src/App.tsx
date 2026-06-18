@@ -43,7 +43,11 @@ import {
   AlertCircle,
   Trash2,
   Lock,
-  Key
+  Key,
+  Share2,
+  Download,
+  Copy,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -115,6 +119,9 @@ export default function App() {
   const [isBackendUnlocked, setIsBackendUnlocked] = useState(false);
   const [enteredPassword, setEnteredPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
@@ -355,105 +362,41 @@ export default function App() {
     XLSX.writeFile(workbook, "Dealer_Commercial_Simulator_Template.xlsx");
   };
 
-  const exportToPDF = () => {
+  const handleShareScreenshot = () => {
     const activeItems = activeCalculations.filter(calc => calc.quantity > 0);
     if (activeItems.length === 0) {
-      alert("No active items in order summary to export. Please adjust quantities of some items above.");
+      alert("No active items in order summary to screenshot. Please adjust quantities of some items above.");
       return;
     }
 
-    const doc = new jsPDF('p', 'mm', 'a4');
-    
-    // Nice header block
-    doc.setFillColor(74, 94, 82); // Primary Theme Sage Color
-    doc.rect(0, 0, 210, 36, 'F');
-    
-    // White text of statement
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.text("Ramco Commercial Buy Proposal Statement", 14, 15);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(220, 230, 220);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN')}`, 14, 22);
-    doc.text(`Applied terms: CD: ${settings.cdPeriod} | Quarterly Growth Goal: ${settings.growthRate} | AD: ${settings.adPercent}%`, 14, 28);
-    
-    let yPos = 44;
-    
-    // Summary box
-    doc.setFillColor(248, 250, 248);
-    doc.setDrawColor(220, 225, 220);
-    doc.roundedRect(14, yPos, 182, 32, 2, 2, 'FD');
-    
-    doc.setTextColor(74, 94, 82);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text("COMMERCIAL SUMMARY INDEX", 19, yPos + 6);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(60, 65, 60);
-    doc.text(`Gross Turn (at Dealer Price): INR ${summary.totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 19, yPos + 15);
-    doc.text(`Net Procurement Cost: INR ${summary.totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 19, yPos + 23);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(50, 80, 60);
-    doc.text(`Retained Commercial Margin: INR ${summary.totalProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 110, yPos + 15);
-    doc.text(`Effective Profit Margin Rate: ${summary.averageMarginPercent.toFixed(2)}%`, 110, yPos + 23);
-    
-    yPos += 42;
-    
-    // Table content representation
-    const headers = [
-      ["Product wise Description", "No of Bags", "Dealer Price", "Total Amount", "Net Price (post-disc)", "Net Amount", "Profit Margin"]
-    ];
-    
-    const rows = activeItems.map(item => {
-      const grossAmount = item.quantity * item.dealerPrice;
-      const netAmount = item.totalCost;
-      return [
-        `${item.product.name} (${item.product.sku})`,
-        `${item.quantity}`,
-        `INR ${item.dealerPrice.toLocaleString('en-IN', { maximumFractionDigits: 1 })}`,
-        `INR ${grossAmount.toLocaleString('en-IN', { maximumFractionDigits: 1 })}`,
-        `INR ${item.purchaseUnitPrice.toLocaleString('en-IN', { maximumFractionDigits: 1 })}`,
-        `INR ${netAmount.toLocaleString('en-IN', { maximumFractionDigits: 1 })}`,
-        `${item.profitMarginPercent.toFixed(1)}%`
-      ];
-    });
+    setIsShareModalOpen(true);
+    setIsCapturing(true);
+    setScreenshotDataUrl(null);
 
-    autoTable(doc, {
-      startY: yPos,
-      head: headers,
-      body: rows,
-      theme: 'grid',
-      headStyles: {
-        fillColor: [74, 94, 82],
-        textColor: [255, 255, 255],
-        fontSize: 8,
-        fontStyle: 'bold',
-        halign: 'left'
-      },
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2.5,
-        textColor: [40, 45, 40]
-      },
-      columnStyles: {
-        0: { cellWidth: 50 },
-        1: { cellWidth: 15, halign: 'center' },
-        2: { cellWidth: 20, halign: 'right' },
-        3: { cellWidth: 24, halign: 'right' },
-        4: { cellWidth: 28, halign: 'right' },
-        5: { cellWidth: 25, halign: 'right' },
-        6: { cellWidth: 20, halign: 'right' }
-      },
-      margin: { left: 14, right: 14 }
-    });
-    
-    doc.save(`Order_Commercial_Statement_${new Date().toISOString().substring(0, 10)}.pdf`);
+    // Wait slightly to let the off-screen division render accurately before capturing
+    setTimeout(async () => {
+      try {
+        const element = document.getElementById('hardwork-profit-estimation-document');
+        if (element) {
+          const html2canvasModule = await import('html2canvas');
+          const html2canvas = html2canvasModule.default;
+          const canvas = await html2canvas(element, {
+            scale: 2, // High resolution
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff'
+          });
+          const dataUrl = canvas.toDataURL('image/png');
+          setScreenshotDataUrl(dataUrl);
+        } else {
+          console.error("Screenshot element not found!");
+        }
+      } catch (err) {
+        console.error("Error capturing screenshot:", err);
+      } finally {
+        setIsCapturing(false);
+      }
+    }, 500);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1074,11 +1017,13 @@ export default function App() {
               Reset Sheet
             </button>
             <button
-              onClick={handlePrint}
-              className="px-3.5 py-1.5 text-xs font-semibold bg-sage-500 hover:bg-sage-600 active:bg-sage-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+              onClick={handleShareScreenshot}
+              disabled={(Object.values(quantities) as number[]).reduce((a, b) => a + b, 0) === 0}
+              className="px-3.5 py-1.5 text-xs font-semibold bg-sage-500 hover:bg-sage-600 active:bg-sage-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+              title="Capture and share a screenshot of the profit estimation"
             >
-              <FileText className="w-3.5 h-3.5" />
-              Export PDF
+              <Camera className="w-3.5 h-3.5" />
+              Share screenshot
             </button>
           </div>
         </div>
@@ -1767,12 +1712,12 @@ export default function App() {
               </h2>
               <button
                 type="button"
-                onClick={exportToPDF}
+                onClick={handleShareScreenshot}
                 className="self-start sm:self-auto px-3 py-1.5 text-xs font-semibold bg-white text-sage-700 hover:bg-sage-50 active:bg-sage-100 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer leading-none"
-                title="Export order commercial summary to a professional PDF statement"
+                title="Capture progress and share the screenshot"
               >
-                <FileText className="w-3.5 h-3.5 text-sage-600" />
-                <span>Export PDF</span>
+                <Camera className="w-3.5 h-3.5 text-sage-600" />
+                <span>Share the screenshot</span>
               </button>
             </div>
 
@@ -2762,7 +2707,303 @@ export default function App() {
             </motion.div>
           </motion.div>
         )}
+
+        {isShareModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 print:hidden"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl shadow-xl max-w-2xl w-full overflow-hidden border border-earth-200 flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="bg-earth-100 p-4 border-b border-earth-250 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-earth-900 uppercase font-serif flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-sage-500" />
+                    Share Profit Estimation Screenshot
+                  </h3>
+                  <p className="text-[10px] text-earth-500 mt-0.5 leading-none">
+                    Image version of the commercial estimation sheet is generated. You can download or share it below.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="p-1 rounded-lg hover:bg-earth-200 text-earth-400 hover:text-earth-600 transition-colors cursor-pointer"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-5 items-center justify-center bg-earth-50/30">
+                {isCapturing ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <div className="w-10 h-10 border-4 border-sage-500/20 border-t-sage-500 rounded-full animate-spin" />
+                    <p className="text-xs font-semibold text-earth-600 font-mono animate-pulse">Generating high-fidelity screenshot...</p>
+                  </div>
+                ) : screenshotDataUrl ? (
+                  <div className="flex flex-col gap-4 items-center w-full">
+                    {/* Visual Preview */}
+                    <div className="border border-earth-200 rounded-xl overflow-hidden shadow-md max-h-[50vh] overflow-y-auto w-full bg-white select-none">
+                      <img 
+                        src={screenshotDataUrl} 
+                        alt="Hardwork Profit estimation" 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-auto object-contain"
+                      />
+                    </div>
+
+                    <p className="text-[10.5px] text-earth-500 font-medium text-center max-w-md">
+                      The estimation document heading has been set to <strong className="text-earth-800">Hardwork Profit estimation</strong>. If Web Share is unsupported by your browser or sandbox configuration, please use the clipboard copy or download buttons.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-xs text-rose-500">
+                    Failed to generate image. Please try again.
+                  </div>
+                )}
+              </div>
+
+              {/* Actions footer */}
+              <div className="bg-earth-100 p-4 border-t border-earth-250 flex flex-wrap gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="px-4 py-1.5 text-xs text-earth-700 font-semibold bg-white border border-earth-300 hover:bg-earth-50 rounded-lg transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+
+                {screenshotDataUrl && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(screenshotDataUrl);
+                          const blob = await response.blob();
+                          const item = new ClipboardItem({ [blob.type]: blob });
+                          await navigator.clipboard.write([item]);
+                          alert("📋 Image successfully copied to clipboard! You can paste/send it anywhere.");
+                        } catch (err) {
+                          console.error("Clipboard write blocked:", err);
+                          alert("Clipboard copy is blocked by browser restrictions. Please click 'Download Image' instead.");
+                        }
+                      }}
+                      className="px-4 py-1.5 text-xs text-earth-800 font-bold bg-white border border-earth-300 hover:bg-earth-50 rounded-lg shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      Copy to Clipboard
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = screenshotDataUrl;
+                        link.download = `Hardwork_Profit_Estimation_${new Date().toISOString().substring(0, 10)}.png`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }}
+                      className="px-4 py-1.5 text-xs text-white bg-earth-700 hover:bg-earth-800 font-bold rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download Image
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(screenshotDataUrl);
+                          const blob = await response.blob();
+                          const file = new File([blob], `Hardwork_Profit_Estimation_${new Date().toISOString().substring(0, 10)}.png`, { type: blob.type });
+                          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                            await navigator.share({
+                              files: [file],
+                              title: 'Hardwork Profit estimation',
+                              text: 'Please review our commercial profit estimation statement.'
+                            });
+                          } else {
+                            alert("Sharing of files is not natively supported in this browser environment. Please use 'Download' or 'Copy' instead.");
+                          }
+                        } catch (err) {
+                          console.warn("Share API error:", err);
+                          alert("Web Sharing API is disabled or blocked in this workspace preview. Please use 'Download Image' or 'Copy to Clipboard'.");
+                        }
+                      }}
+                      className="px-4 py-1.5 text-xs text-white bg-sage-500 hover:bg-sage-600 active:bg-sage-700 font-bold rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer uppercase tracking-wider"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      Share Screenshot
+                    </button>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
+
+      {/* Hidden Screenshot Document Container for html2canvas */}
+      <div className="absolute left-[-9999px] top-[-9999px] print:hidden">
+        <div 
+          id="hardwork-profit-estimation-document" 
+          className="w-[800px] p-8 font-sans flex flex-col gap-6"
+          style={{ backgroundColor: '#ffffff', color: '#4a443f' }}
+        >
+          {/* Header Block */}
+          <div 
+            className="rounded-xl p-6 flex flex-col gap-4 shadow-sm border"
+            style={{ backgroundColor: '#7a816c', color: '#ffffff', borderColor: '#676d5b' }}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight font-serif" style={{ color: '#ffffff' }}>Hardwork Profit estimation</h1>
+                <p className="text-[11px] font-mono mt-1 opacity-90 uppercase tracking-wider" style={{ color: '#ebede7' }}>
+                  Order Commercial Proposal Statement
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-mono" style={{ color: '#ebede7' }}>
+                  Date: {new Date().toLocaleDateString('en-IN')}
+                </p>
+                <p className="text-[10px] font-mono mt-0.5" style={{ color: 'rgba(235, 237, 231, 0.8)' }}>
+                  Time: {new Date().toLocaleTimeString('en-IN')}
+                </p>
+              </div>
+            </div>
+            <div 
+              className="border-t pt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs font-medium"
+              style={{ borderColor: 'rgba(255, 255, 255, 0.1)', color: 'rgba(235, 237, 231, 0.9)' }}
+            >
+              <span>CD Period: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.cdPeriod} days</strong></span>
+              <span>Quarterly Growth Goal: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.growthRate}</strong></span>
+              <span>AD %: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.adPercent}%</strong></span>
+            </div>
+          </div>
+
+          {/* Metrics Summary Index Grid */}
+          <div>
+            <h3 className="text-xs font-bold font-mono uppercase tracking-wider mb-2.5" style={{ color: '#8c847c' }}>
+              Commercial Summary Index
+            </h3>
+            <div className="grid grid-cols-4 gap-3">
+              <div 
+                className="rounded-lg p-3.5 flex flex-col gap-1 border"
+                style={{ backgroundColor: 'rgba(253, 252, 251, 0.6)', borderColor: '#f5f2ed' }}
+              >
+                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#8c847c' }}>Gross Turn (Dealer Price)</span>
+                <span className="text-base font-bold font-mono" style={{ color: '#2d2a26' }}>
+                  ₹{summary.totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </span>
+              </div>
+              <div 
+                className="rounded-lg p-3.5 flex flex-col gap-1 border"
+                style={{ backgroundColor: 'rgba(253, 252, 251, 0.6)', borderColor: '#f5f2ed' }}
+              >
+                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#8c847c' }}>Net Procurement Cost</span>
+                <span className="text-base font-bold font-mono" style={{ color: '#2d2a26' }}>
+                  ₹{summary.totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </span>
+              </div>
+              <div 
+                className="rounded-lg p-3.5 flex flex-col gap-1 border"
+                style={{ backgroundColor: 'rgba(246, 247, 244, 0.7)', borderColor: '#ebede7' }}
+              >
+                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#7a816c' }}>Retained Profit Margin</span>
+                <span className="text-base font-bold font-mono" style={{ color: '#676d5b' }}>
+                  ₹{summary.totalProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </span>
+              </div>
+              <div 
+                className="rounded-lg p-3.5 flex flex-col gap-1 border"
+                style={{ backgroundColor: 'rgba(246, 247, 244, 0.7)', borderColor: '#ebede7' }}
+              >
+                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#7a816c' }}>Profit Margin Rate</span>
+                <span className="text-base font-bold font-mono" style={{ color: '#676d5b' }}>
+                  {summary.averageMarginPercent.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Product Wise Analysis Table */}
+          <div>
+            <h3 className="text-xs font-bold font-mono uppercase tracking-wider mb-2.5" style={{ color: '#8c847c' }}>
+              Product-wise Analysis Table
+            </h3>
+            <div className="rounded-xl overflow-hidden border shadow-2xs" style={{ borderColor: '#e5e0d8' }}>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="font-bold border-b" style={{ backgroundColor: 'rgba(245, 242, 237, 0.6)', borderColor: '#e5e0d8', color: '#4a443f' }}>
+                    <th className="py-2.5 px-3">Product Profile / SKU</th>
+                    <th className="py-2.5 px-3 text-center">Bags</th>
+                    <th className="py-2.5 px-3 text-right">Dealer Price</th>
+                    <th className="py-2.5 px-3 text-right">Total Gross</th>
+                    <th className="py-2.5 px-3 text-right">Post-Disc NP</th>
+                    <th className="py-2.5 px-3 text-right">Net Cost</th>
+                    <th className="py-2.5 px-3 text-right">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody style={{ color: '#4a443f' }}>
+                  {activeCalculations.filter(calc => calc.quantity > 0).map((calc, idx) => {
+                    const grossAmount = calc.quantity * calc.dealerPrice;
+                    return (
+                      <tr 
+                        key={calc.product.id || idx} 
+                        className="font-medium border-b last:border-b-0"
+                        style={{ borderColor: '#f5f2ed' }}
+                      >
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold" style={{ color: '#2d2a26' }}>{calc.product.name}</div>
+                          <div className="text-[10px] font-mono mt-0.5" style={{ color: '#8c847c' }}>{calc.product.sku}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-bold font-mono" style={{ color: '#2d2a26' }}>{calc.quantity}</td>
+                        <td className="py-2.5 px-3 text-right font-mono" style={{ color: '#706961' }}>
+                          ₹{calc.dealerPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono" style={{ color: '#706961' }}>
+                          ₹{grossAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono" style={{ color: '#706961' }}>
+                          ₹{calc.purchaseUnitPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-semibold" style={{ color: '#2d2a26' }}>
+                          ₹{calc.totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </td>
+                        <td 
+                          className="py-2.5 px-3 text-right font-mono font-bold" 
+                          style={{ color: calc.profitMarginPercent >= 0 ? '#047857' : '#be123c' }}
+                        >
+                          {calc.profitMarginPercent.toFixed(1)}%
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Footer Stamp / Notice */}
+          <div 
+            className="mt-4 border-t pt-4 flex justify-between items-center text-[10px] font-mono"
+            style={{ borderColor: '#e5e0d8', color: '#a8a29a' }}
+          >
+            <span>Hardworker Commercial Profit Simulator • Private & Confidential</span>
+            <span>Generated on {new Date().toLocaleDateString('en-IN')}</span>
+          </div>
+        </div>
+      </div>
 
       {/* FOOTER */}
       <footer className="bg-white border-t border-earth-200 text-center py-5 text-xs text-earth-500 mt-auto shrink-0 print:hidden">
