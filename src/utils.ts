@@ -83,7 +83,8 @@ export function calculateProfitSingle(
   quantity: number,
   settings: DiscountSettings,
   customSellingPrice?: number,
-  overrideVolumeDiscountPercent?: number
+  overrideVolumeDiscountPercent?: number,
+  overrideAdPercent?: number
 ): ProfitResult {
   // 1. Calculate Volume Discount
   const volPercent = overrideVolumeDiscountPercent !== undefined 
@@ -108,7 +109,7 @@ export function calculateProfitSingle(
   const volumeDiscountAmount = product.dealerPrice - volumeDiscountedPrice;
 
   // 3. Additional Discount (AD) — calculated from base Dealer Price
-  const adPercent = settings.adPercent;
+  const adPercent = overrideAdPercent !== undefined ? overrideAdPercent : settings.adPercent;
   const adAmount = product.dealerPrice * (adPercent / 100);
 
   // 4. Cash Discount (CD) — calculated from base Dealer Price

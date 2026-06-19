@@ -145,6 +145,7 @@ export default function App() {
   };
 
   const [customSellingPrices, setCustomSellingPrices] = useState<Record<string, number>>({});
+  const [productAdPercents, setProductAdPercents] = useState<Record<string, number>>({});
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [pricingImportStatus, setPricingImportStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [isBackendUnlocked, setIsBackendUnlocked] = useState(false);
@@ -159,11 +160,11 @@ export default function App() {
 
   // Step 1 Cascading Dropdowns Selection States
   const [selectedGroup, setSelectedGroup] = useState<string>('Tile Fix');
-  const [selectedProductName, setSelectedProductName] = useState<string>('');
-  const [selectedSkuId, setSelectedSkuId] = useState<string>('');
+  const [selectedProductName, setSelectedProductName] = useState<string>('TILE FIX-STANDARD - HW201');
+  const [selectedSkuId, setSelectedSkuId] = useState<string>('tf-standard-hw201-20');
   const [inputQuantity, setInputQuantity] = useState<number>(1);
   const [settings, setSettings] = useState<DiscountSettings>({
-    adPercent: 3,
+    adPercent: 0,
     cdPeriod: '0-7',
     growthRate: 'medium',
   });
@@ -323,6 +324,19 @@ export default function App() {
     });
   };
 
+  const updateProductAdPercent = (productId: string, val: number | string) => {
+    const num = typeof val === 'string' ? parseFloat(val) : val;
+    setProductAdPercents((prev) => {
+      const updated = { ...prev };
+      if (isNaN(num) || num < 0) {
+        delete updated[productId];
+      } else {
+        updated[productId] = num;
+      }
+      return updated;
+    });
+  };
+
   // --- INTEGRATED GROUP VOLUMES FOR GROUPED SLABS ---
   const groupVolumes = useMemo(() => {
     return getActiveGroupVolumes(products, quantities);
@@ -359,12 +373,14 @@ export default function App() {
     const additionalUnitsNeeded = Math.max(1, Math.ceil(additionalVolumeNeeded / volumePerSKU));
 
     const simulatedQuantity = quantity + additionalUnitsNeeded;
+    const productAdPercentOverride = productAdPercents[product.id];
     const simulatedCalcResult = calculateProfitSingle(
       product, 
       simulatedQuantity, 
       settings, 
       customPrice, 
-      nextBracket.discountPercent
+      nextBracket.discountPercent,
+      productAdPercentOverride
     );
 
     return {
@@ -860,15 +876,16 @@ export default function App() {
     return products.map((prod) => {
       const q = quantities[prod.id] || 0;
       const customPrice = customSellingPrices[prod.id];
+      const productAdPercentOverride = productAdPercents[prod.id];
       
       if (q > 0 && prod.volumeDiscountRule) {
         const groupVolumeDiscountPercent = getGroupVolumeDiscountPercent(prod, groupVolumes);
-        return calculateProfitSingle(prod, q, settings, customPrice, groupVolumeDiscountPercent);
+        return calculateProfitSingle(prod, q, settings, customPrice, groupVolumeDiscountPercent, productAdPercentOverride);
       }
       
-      return calculateProfitSingle(prod, q, settings, customPrice);
+      return calculateProfitSingle(prod, q, settings, customPrice, undefined, productAdPercentOverride);
     });
-  }, [products, quantities, settings, customSellingPrices, groupVolumes]);
+  }, [products, quantities, settings, customSellingPrices, groupVolumes, productAdPercents]);
 
   // Aggregate active results
   const summary = useMemo(() => {
@@ -963,7 +980,8 @@ export default function App() {
   useEffect(() => {
     if (availableProductNames.length > 0) {
       if (!selectedProductName || !availableProductNames.includes(selectedProductName)) {
-        setSelectedProductName(availableProductNames[0]);
+        const preferred = availableProductNames.find(name => name === 'TILE FIX-STANDARD - HW201');
+        setSelectedProductName(preferred || availableProductNames[0]);
       }
     } else {
       setSelectedProductName('');
@@ -981,7 +999,8 @@ export default function App() {
   useEffect(() => {
     if (availableSkus.length > 0) {
       if (!selectedSkuId || !availableSkus.some(s => s.id === selectedSkuId)) {
-        setSelectedSkuId(availableSkus[0].id);
+        const preferredSku = availableSkus.find(s => s.id === 'tf-standard-hw201-20');
+        setSelectedSkuId(preferredSku ? preferredSku.id : availableSkus[0].id);
       }
     } else {
       setSelectedSkuId('');
@@ -1325,7 +1344,7 @@ export default function App() {
                     const qty = quantities[product.id] || 0;
                     const customPrice = customSellingPrices[product.id];
                     const groupVolumeDiscountPercent = product.volumeDiscountRule ? getGroupVolumeDiscountPercent(product, groupVolumes) : 0;
-                    const calcResult = calculateProfitSingle(product, qty, settings, customPrice, groupVolumeDiscountPercent);
+                    const calcResult = calculateProfitSingle(product, qty, settings, customPrice, groupVolumeDiscountPercent, productAdPercents[product.id]);
                     const isExplanationOpen = showExplanationId === product.id;
 
                     // Get Slab recommendations
@@ -1405,6 +1424,37 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => updateCustomSellingPrice(product.id, '')}
+                                  className="text-[10px] text-rose-600 hover:text-rose-700 hover:underline cursor-pointer font-bold ml-1.5"
+                                >
+                                  Revert to Default
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Product-Specific Annual Discount Input Override */}
+                            <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs">
+                              <span className="text-earth-700 font-semibold select-none font-serif">Annual Discount (AD) Override:</span>
+                              <div className="relative flex items-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="0.5"
+                                  value={productAdPercents[product.id] !== undefined ? productAdPercents[product.id] : ''}
+                                  onChange={(e) => updateProductAdPercent(product.id, e.target.value)}
+                                  placeholder={settings.adPercent.toString()}
+                                  className="pl-2 pr-6 py-1 w-20 bg-white border border-earth-300 focus:border-sage-500 focus:ring-2 focus:ring-sage-500/10 rounded-lg text-earth-900 font-mono font-bold outline-none transition-all text-xs shadow-3xs"
+                                  title="Manually specify custom AD percentage. Clear or leave empty to default to global standard."
+                                />
+                                <span className="absolute right-2 text-earth-400 font-mono">%</span>
+                              </div>
+                              <span className="text-[10.5px] text-earth-400 italic shrink-0">
+                                {productAdPercents[product.id] !== undefined ? 'Custom AD active' : `Using global default (${settings.adPercent}%)`}
+                              </span>
+                              {productAdPercents[product.id] !== undefined && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateProductAdPercent(product.id, '')}
                                   className="text-[10px] text-rose-600 hover:text-rose-700 hover:underline cursor-pointer font-bold ml-1.5"
                                 >
                                   Revert to Default
@@ -1542,7 +1592,7 @@ export default function App() {
                                       )}
                                     </div>
                                     <div>
-                                      [-] Additional Disc (AD): -{calcResult.adPercent}% Amount = <span className="text-earth-950 font-bold">₹{calcResult.adAmount.toFixed(1)}</span>
+                                      [-] Annual Disc (AD): -{calcResult.adPercent}% Amount = <span className="text-earth-950 font-bold">₹{calcResult.adAmount.toFixed(1)}</span>
                                     </div>
                                     <div>
                                       [-] Cash Disc (CD): -{calcResult.cdPercent}% Amount = <span className="text-earth-950 font-bold">₹{calcResult.cdAmount.toFixed(1)}</span>
@@ -1590,7 +1640,8 @@ export default function App() {
             </div>
           </section>
 
-          {/* EXCEL IMPORT SYNCRONIZATION BOARD */}
+          {/* FUTURE USE: Excel import export
+          {/* EXCEL IMPORT SYNCRONIZATION BOARD * /}
           <section className="bg-white border border-earth-200 rounded-xl p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 print:hidden">
             <div className="flex-1">
               <h3 className="text-sm font-bold font-serif text-earth-900 flex items-center gap-1.5">
@@ -1626,7 +1677,7 @@ export default function App() {
             </div>
           </section>
 
-          {/* IMPORT STATUS ALERT BOX */}
+          {/* IMPORT STATUS ALERT BOX * /}
           {importStatus.type && (
             <div className={`text-xs p-4 rounded-xl border flex items-start gap-3 justify-between shadow-2xs print:hidden ${
               importStatus.type === 'success' 
@@ -1650,6 +1701,7 @@ export default function App() {
               </button>
             </div>
           )}
+          END FUTURE USE: Excel import export */}
 
           {/* ACTIVE SUMMARY HIGHLIGHT BOARD */}
           <div className="bg-sage-50 border border-sage-200 text-sage-800 rounded-xl px-4 py-3 text-xs flex flex-wrap items-center justify-between gap-3 shadow-2xs">
@@ -1682,7 +1734,7 @@ export default function App() {
               {/* AD slider */}
               <div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-earth-700">Additional Discount (AD)</span>
+                  <span className="font-semibold text-earth-700">Global Annual Discount (AD)</span>
                   <span className="font-bold text-sage-600 p-1 bg-sage-50 rounded-md font-mono">{settings.adPercent}%</span>
                 </div>
                 <input
@@ -1880,7 +1932,7 @@ export default function App() {
               </div>
               <div className="text-right">
                 <h4 className="text-[10px] font-bold uppercase text-earth-400">Global Applied Terms</h4>
-                <p className="text-xs font-semibold">Additional Discount (AD): {settings.adPercent}%</p>
+                <p className="text-xs font-semibold">Global Annual Discount (AD): {settings.adPercent}% (Overridable per SKU)</p>
                 <p className="text-xs font-semibold">Cash terms (CD) period: {settings.cdPeriod} days (3% max)</p>
                 <p className="text-xs font-semibold">Growth targeted tier: {settings.growthRate} rate (7% max)</p>
               </div>
@@ -2928,7 +2980,7 @@ export default function App() {
             >
               <span>CD Period: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.cdPeriod} days</strong></span>
               <span>Quarterly Growth Goal: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.growthRate}</strong></span>
-              <span>AD %: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.adPercent}%</strong></span>
+              <span>Global Annual Discount: <strong className="font-mono" style={{ color: '#ffffff' }}>{settings.adPercent}%</strong></span>
             </div>
           </div>
 
@@ -2989,6 +3041,7 @@ export default function App() {
                     <th className="py-2.5 px-3">Product Profile / SKU</th>
                     <th className="py-2.5 px-3 text-center">Bags</th>
                     <th className="py-2.5 px-3 text-right">Dealer Price</th>
+                    <th className="py-2.5 px-3 text-right">Selling Rate</th>
                     <th className="py-2.5 px-3 text-right">Total Gross</th>
                     <th className="py-2.5 px-3 text-right">Post-Disc NP</th>
                     <th className="py-2.5 px-3 text-right">Net Cost</th>
@@ -3011,6 +3064,9 @@ export default function App() {
                         <td className="py-2.5 px-3 text-center font-bold font-mono" style={{ color: '#2d2a26' }}>{calc.quantity}</td>
                         <td className="py-2.5 px-3 text-right font-mono" style={{ color: '#706961' }}>
                           ₹{calc.dealerPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold" style={{ color: '#7a816c' }}>
+                          ₹{calc.sellingPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono" style={{ color: '#706961' }}>
                           ₹{grossAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
