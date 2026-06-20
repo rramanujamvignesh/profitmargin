@@ -910,7 +910,7 @@ export default function App() {
       }
     });
 
-    const averageMarginPercent = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    const averageMarginPercent = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
 
     return {
       totalRevenue,
@@ -1817,7 +1817,7 @@ export default function App() {
             {/* Total Sales */}
             <div>
               <span className="text-[10px] uppercase font-semibold text-sage-100 block tracking-wider">
-                Monthly Turn at Dealer Price
+                Dealer's Monthly Turnover
               </span>
               <div className="text-2xl sm:text-3xl font-bold text-white mt-1 font-serif tracking-tight leading-none">
                 ₹{summary.totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
@@ -1848,7 +1848,7 @@ export default function App() {
             <div className="border-t border-white/15 pt-4 flex items-center justify-between gap-3">
               <div>
                 <span className="text-[10px] uppercase font-semibold text-sage-100 block tracking-wider">
-                  Effective Profit Margin
+                  Profit Percentage
                 </span>
                 <div className="text-sm font-medium text-sage-50 mt-1">
                   Weighted Total Percentage
@@ -1872,7 +1872,7 @@ export default function App() {
                     className="stroke-white fill-none transition-all duration-500"
                     strokeWidth="4"
                     strokeDasharray={2 * Math.PI * 26}
-                    strokeDashoffset={2 * Math.PI * 26 * (1 - Math.min(35, summary.averageMarginPercent) / 100)}
+                    strokeDashoffset={2 * Math.PI * 26 * (1 - Math.min(100, summary.averageMarginPercent) / 100)}
                   />
                 </svg>
                 <div className="text-xs font-black font-mono text-white">
@@ -2994,7 +2994,7 @@ export default function App() {
                 className="rounded-lg p-3.5 flex flex-col gap-1 border"
                 style={{ backgroundColor: 'rgba(253, 252, 251, 0.6)', borderColor: '#f5f2ed' }}
               >
-                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#8c847c' }}>Gross Turn (Dealer Price)</span>
+                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#8c847c' }}>Dealer's Monthly Turnover</span>
                 <span className="text-base font-bold font-mono" style={{ color: '#2d2a26' }}>
                   ₹{summary.totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </span>
@@ -3021,7 +3021,7 @@ export default function App() {
                 className="rounded-lg p-3.5 flex flex-col gap-1 border"
                 style={{ backgroundColor: 'rgba(246, 247, 244, 0.7)', borderColor: '#ebede7' }}
               >
-                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#7a816c' }}>Profit Margin Rate</span>
+                <span className="text-[9px] uppercase font-bold tracking-wider" style={{ color: '#7a816c' }}>Profit Percentage</span>
                 <span className="text-base font-bold font-mono" style={{ color: '#676d5b' }}>
                   {summary.averageMarginPercent.toFixed(2)}%
                 </span>
@@ -3045,7 +3045,8 @@ export default function App() {
                     <th className="py-2.5 px-3 text-right">Total Gross</th>
                     <th className="py-2.5 px-3 text-right">Post-Disc NP</th>
                     <th className="py-2.5 px-3 text-right">Net Cost</th>
-                    <th className="py-2.5 px-3 text-right">Margin %</th>
+                    <th className="py-2.5 px-3 text-right">Net Profit</th>
+                    <th className="py-2.5 px-3 text-right">Profit %</th>
                   </tr>
                 </thead>
                 <tbody style={{ color: '#4a443f' }}>
@@ -3076,6 +3077,9 @@ export default function App() {
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-semibold" style={{ color: '#2d2a26' }}>
                           ₹{calc.totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold" style={{ color: calc.totalProfit >= 0 ? '#047857' : '#be123c' }}>
+                          ₹{calc.totalProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         </td>
                         <td 
                           className="py-2.5 px-3 text-right font-mono font-bold" 

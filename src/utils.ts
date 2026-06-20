@@ -135,7 +135,7 @@ export function calculateProfitSingle(
   const totalProfit = quantity * profitPerUnit;
 
   // 9. Profit Margin %
-  const profitMarginPercent = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const profitMarginPercent = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
 
   return {
     product,
