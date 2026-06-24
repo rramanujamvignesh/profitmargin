@@ -12,7 +12,7 @@ import {
   IWP_LIQUID_RULE,
   STRONG_BLOCK_RULE
 } from './data';
-import { Product, DiscountSettings, ProfitResult, ProductCategory } from './types';
+import { Product, DiscountSettings, ProfitResult, ProductCategory, UnitType } from './types';
 import { 
   calculateProfitSingle, 
   getVolumeValue, 
@@ -40,6 +40,8 @@ import {
   Plus,
   Minus,
   Check,
+  Edit2,
+  X,
   AlertCircle,
   Trash2,
   Lock,
@@ -151,6 +153,36 @@ export default function App() {
   const [isBackendUnlocked, setIsBackendUnlocked] = useState(false);
   const [enteredPassword, setEnteredPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  // Auto-lock the backend after 10 minutes of inactivity
+  useEffect(() => {
+    if (!isBackendUnlocked) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setIsBackendUnlocked(false);
+      }, 10 * 60 * 1000); // 10 minutes
+    };
+
+    // Initialize timer
+    resetTimer();
+
+    // Listen for user activity events
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach(event => {
+      window.addEventListener(event, resetTimer);
+    });
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => {
+        window.removeEventListener(event, resetTimer);
+      });
+    };
+  }, [isBackendUnlocked]);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -192,6 +224,13 @@ export default function App() {
   const [editingProductSlabs, setEditingProductSlabs] = useState<Product | null>(null);
   const [tempSlabs, setTempSlabs] = useState<{ min: number; discountPercent: number }[]>([]);
   const [tempUnit, setTempUnit] = useState<'MT' | 'kg' | 'L'>('kg');
+
+  // Product info editing states
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editSku, setEditSku] = useState('');
+  const [editSkuWeight, setEditSkuWeight] = useState<number>(20);
+  const [editSkuUnit, setEditSkuUnit] = useState<UnitType>('kg');
 
   // Add Product modal states
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
@@ -2248,15 +2287,116 @@ export default function App() {
                     filteredPricingProducts.map((p) => (
                       <tr key={p.id} className="hover:bg-earth-50/40 transition-colors">
                         <td className="p-4">
-                          <div className="font-bold text-earth-900 text-sm leading-tight font-serif uppercase">{p.name}</div>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className="bg-earth-100 text-earth-500 font-mono text-[9px] px-1.5 py-0.5 rounded border border-earth-200/50">
-                              {p.id}
-                            </span>
-                            <span className="text-earth-500 text-[11px] font-medium leading-none">
-                              {p.sku} ({p.skuWeight} {p.skuUnit})
-                            </span>
-                          </div>
+                          {editingProductId === p.id ? (
+                            <div className="flex flex-col gap-2.5 bg-earth-50/50 p-2.5 rounded-lg border border-earth-200">
+                              <div>
+                                <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">Product Name</label>
+                                <input
+                                  type="text"
+                                  id={`edit-name-${p.id}`}
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs font-serif uppercase focus:border-sage-500 focus:ring-1 focus:ring-sage-500 text-earth-900"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">SKU Description</label>
+                                <input
+                                  type="text"
+                                  id={`edit-sku-${p.id}`}
+                                  value={editSku}
+                                  onChange={(e) => setEditSku(e.target.value)}
+                                  className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs focus:border-sage-500 focus:ring-1 focus:ring-sage-500 text-earth-900"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                  <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">Size Value</label>
+                                  <input
+                                    type="number"
+                                    id={`edit-weight-${p.id}`}
+                                    step="any"
+                                    min="0.1"
+                                    value={editSkuWeight}
+                                    onChange={(e) => setEditSkuWeight(parseFloat(e.target.value) || 0)}
+                                    className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs font-mono focus:border-sage-500 focus:ring-1 focus:ring-sage-500 text-earth-900"
+                                  />
+                                </div>
+                                <div className="w-20">
+                                  <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">Unit</label>
+                                  <select
+                                    id={`edit-unit-${p.id}`}
+                                    value={editSkuUnit}
+                                    onChange={(e) => setEditSkuUnit(e.target.value as UnitType)}
+                                    className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs focus:border-sage-500 focus:ring-1 focus:ring-sage-500 cursor-pointer text-earth-900"
+                                  >
+                                    <option value="kg">kg</option>
+                                    <option value="L">L</option>
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <button
+                                  type="button"
+                                  id={`save-btn-${p.id}`}
+                                  onClick={() => {
+                                    if (!editName.trim()) return;
+                                    const updated = products.map((item) =>
+                                      item.id === p.id ? { 
+                                        ...item, 
+                                        name: editName.trim(), 
+                                        sku: editSku.trim() || `${editSkuWeight} ${editSkuUnit}`, 
+                                        skuWeight: editSkuWeight, 
+                                        skuUnit: editSkuUnit 
+                                      } : item
+                                    );
+                                    updateProductsAndPersist(updated);
+                                    setEditingProductId(null);
+                                  }}
+                                  className="px-2.5 py-1 text-[10px] font-bold bg-sage-500 text-white rounded hover:bg-sage-600 transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Check className="w-3 h-3" /> Save
+                                </button>
+                                <button
+                                  type="button"
+                                  id={`cancel-btn-${p.id}`}
+                                  onClick={() => setEditingProductId(null)}
+                                  className="px-2.5 py-1 text-[10px] font-bold bg-earth-200 text-earth-700 rounded hover:bg-earth-300 transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                  <X className="w-3 h-3" /> Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="group flex items-start justify-between gap-2.5">
+                              <div>
+                                <div className="font-bold text-earth-900 text-sm leading-tight font-serif uppercase">{p.name}</div>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <span className="bg-earth-100 text-earth-500 font-mono text-[9px] px-1.5 py-0.5 rounded border border-earth-200/50">
+                                    {p.id}
+                                  </span>
+                                  <span className="text-earth-500 text-[11px] font-medium leading-none">
+                                    {p.sku} ({p.skuWeight} {p.skuUnit})
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                id={`edit-btn-${p.id}`}
+                                onClick={() => {
+                                  setEditingProductId(p.id);
+                                  setEditName(p.name);
+                                  setEditSku(p.sku);
+                                  setEditSkuWeight(p.skuWeight);
+                                  setEditSkuUnit(p.skuUnit);
+                                }}
+                                className="p-1 rounded bg-earth-100 text-earth-600 hover:bg-sage-100 hover:text-sage-700 opacity-80 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer"
+                                title="Edit product name or packing details"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td className="p-4">
                           <span className="text-xs font-semibold text-earth-600 bg-earth-100/50 px-2 py-1 rounded-md border border-earth-200/20">
