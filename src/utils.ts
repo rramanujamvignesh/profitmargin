@@ -37,7 +37,9 @@ export function getVolumeDiscountPercent(product: Product, quantity: number): nu
   const volumeValue = getVolumeValue(product, quantity);
   const brackets = product.volumeDiscountRule.brackets;
 
-  for (const bracket of brackets) {
+  // Search from highest to lowest bracket to ensure boundary values (min) get matched to the higher bracket
+  for (let i = brackets.length - 1; i >= 0; i--) {
+    const bracket = brackets[i];
     if (volumeValue >= bracket.min && volumeValue <= bracket.max) {
       return bracket.discountPercent;
     }
@@ -223,7 +225,9 @@ export function getGroupVolumeDiscountPercent(
   if (groupVolume <= 0) return 0;
 
   const brackets = product.volumeDiscountRule.brackets;
-  for (const bracket of brackets) {
+  // Search from highest to lowest bracket to ensure boundary values (min) get matched to the higher bracket
+  for (let i = brackets.length - 1; i >= 0; i--) {
+    const bracket = brackets[i];
     if (groupVolume >= bracket.min && groupVolume <= bracket.max) {
       return bracket.discountPercent;
     }

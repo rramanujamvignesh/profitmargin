@@ -1,0 +1,18 @@
+{
+  "collections": {
+    "products": {
+      "description": "Universal product records including custom products and updated pricing slabs",
+      "schema": {
+        "id": "string",
+        "name": "string",
+        "sku": "string",
+        "skuWeight": "number",
+        "skuUnit": "string",
+        "dealerPrice": "number",
+        "category": "string",
+        "volumeDiscountRule": "object|null"
+      },
+      "indexes": []
+    }
+  }
+}

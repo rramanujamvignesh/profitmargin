@@ -13,6 +13,8 @@ import {
   STRONG_BLOCK_RULE
 } from './data';
 import { Product, DiscountSettings, ProfitResult, ProductCategory, UnitType } from './types';
+import { db } from './firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { 
   calculateProfitSingle, 
   getVolumeValue, 
@@ -98,19 +100,113 @@ export default function App() {
     return MASTER_PRODUCTS;
   });
 
-  const updateProductsAndPersist = (newProducts: Product[]) => {
+  // Sync products with Firestore in real-time
+  useEffect(() => {
+    const colRef = collection(db, "products");
+    const unsubscribe = onSnapshot(colRef, async (snapshot) => {
+      if (snapshot.empty) {
+        // If Firestore is empty, populate with MASTER_PRODUCTS automatically
+        try {
+          const batch = writeBatch(db);
+          MASTER_PRODUCTS.forEach((p) => {
+            const docRef = doc(db, "products", p.id);
+            batch.set(docRef, p);
+          });
+          await batch.commit();
+        } catch (err) {
+          console.error("Error seeding initial products to Firestore:", err);
+        }
+      } else {
+        const loadedProducts: Product[] = [];
+        snapshot.forEach((doc) => {
+          loadedProducts.push(doc.data() as Product);
+        });
+
+        // Maintain original category order of MASTER_PRODUCTS
+        const orderMap = new Map<string, number>();
+        MASTER_PRODUCTS.forEach((p, idx) => orderMap.set(p.id, idx));
+
+        loadedProducts.sort((a, b) => {
+          const idxA = orderMap.get(a.id) ?? 9999;
+          const idxB = orderMap.get(b.id) ?? 9999;
+          if (idxA !== idxB) return idxA - idxB;
+          return a.name.localeCompare(b.name);
+        });
+
+        setProducts(loadedProducts);
+        localStorage.setItem('commercial_master_products_v3', JSON.stringify(loadedProducts));
+      }
+    }, (error) => {
+      console.error("Firestore subscription error:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const updateProductsAndPersist = async (newProducts: Product[]) => {
     setProducts(newProducts);
     localStorage.setItem('commercial_master_products_v3', JSON.stringify(newProducts));
+
+    try {
+      const batch = writeBatch(db);
+
+      // Identify what was deleted from products list
+      const currentIds = new Set(newProducts.map(p => p.id));
+      products.forEach((p) => {
+        if (!currentIds.has(p.id)) {
+          const docRef = doc(db, "products", p.id);
+          batch.delete(docRef);
+        }
+      });
+
+      // Identify what was added or modified
+      const existingMap = new Map<string, Product>();
+      products.forEach(p => existingMap.set(p.id, p));
+
+      newProducts.forEach((p) => {
+        const existing = existingMap.get(p.id);
+        if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
+          const docRef = doc(db, "products", p.id);
+          batch.set(docRef, p);
+        }
+      });
+
+      await batch.commit();
+    } catch (err) {
+      console.error("Error writing changes to Firestore:", err);
+    }
   };
 
-  const handleResetToDefaultPricing = () => {
+  const handleResetToDefaultPricing = async () => {
     if (window.confirm("Are you sure you want to restore built-in master pricing & discount tiers? This will overwrite your current configurations.")) {
-      setProducts(MASTER_PRODUCTS);
-      localStorage.removeItem('commercial_master_products_v3');
-      setPricingImportStatus({
-        type: 'success',
-        message: 'Reverted pricing & discount definitions to default settings.'
-      });
+      try {
+        const batch = writeBatch(db);
+        
+        // Delete current products in Firestore
+        products.forEach((p) => {
+          const docRef = doc(db, "products", p.id);
+          batch.delete(docRef);
+        });
+
+        // Set default MASTER_PRODUCTS
+        MASTER_PRODUCTS.forEach((p) => {
+          const docRef = doc(db, "products", p.id);
+          batch.set(docRef, p);
+        });
+
+        await batch.commit();
+
+        setPricingImportStatus({
+          type: 'success',
+          message: 'Reverted pricing & discount definitions to default settings.'
+        });
+      } catch (err) {
+        console.error("Error resetting Firestore products:", err);
+        setPricingImportStatus({
+          type: 'error',
+          message: 'Failed to reset Firestore: ' + (err as Error).message
+        });
+      }
     }
   };
 
@@ -391,7 +487,9 @@ export default function App() {
     const brackets = product.volumeDiscountRule.brackets;
     const activePercent = getGroupVolumeDiscountPercent(product, groupVolumes);
 
-    const activeIndex = brackets.findIndex(b => currentVolume >= b.min && currentVolume <= b.max);
+    const activeIndex = brackets.map((b, idx) => ({ ...b, idx }))
+      .reverse()
+      .find(b => currentVolume >= b.min && currentVolume <= b.max)?.idx ?? -1;
 
     // Next bracket has a discountPercent higher than activePercent, and min is greater than current volume
     const nextBracket = brackets.find((b, idx) => {
@@ -2270,7 +2368,7 @@ export default function App() {
           </div>
 
           {/* SHEET DATA GRID */}
-          <div className="bg-white rounded-xl border border-earth-200 shadow-3xs overflow-hidden">
+          <div className="bg-white rounded-xl border border-earth-200 shadow-3xs overflow-hidden hidden md:block">
             <div className="overflow-x-auto font-sans">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -2508,6 +2606,242 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* MOBILE CARD VIEW (Fixed view, no horizontal scrolling) */}
+          <div className="block md:hidden space-y-4">
+            {filteredPricingProducts.length > 0 ? (
+              filteredPricingProducts.map((p) => (
+                <div key={p.id} className="bg-white rounded-xl border border-earth-200 shadow-2xs p-4 flex flex-col gap-3.5">
+                  {/* Card Header: Product Name & Category & Edit Action */}
+                  <div className="border-b border-earth-150 pb-3">
+                    {editingProductId === p.id ? (
+                      <div className="flex flex-col gap-2.5 bg-earth-50/50 p-2.5 rounded-lg border border-earth-200">
+                        <div>
+                          <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">Product Name</label>
+                          <input
+                            type="text"
+                            id={`edit-name-mob-${p.id}`}
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs font-serif uppercase focus:border-sage-500 focus:ring-1 focus:ring-sage-500 text-earth-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">SKU Description</label>
+                          <input
+                            type="text"
+                            id={`edit-sku-mob-${p.id}`}
+                            value={editSku}
+                            onChange={(e) => setEditSku(e.target.value)}
+                            className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs focus:border-sage-500 focus:ring-1 focus:ring-sage-500 text-earth-900"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">Size Value</label>
+                            <input
+                              type="number"
+                              id={`edit-weight-mob-${p.id}`}
+                              step="any"
+                              min="0.1"
+                              value={editSkuWeight}
+                              onChange={(e) => setEditSkuWeight(parseFloat(e.target.value) || 0)}
+                              className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs font-mono focus:border-sage-500 focus:ring-1 focus:ring-sage-500 text-earth-900"
+                            />
+                          </div>
+                          <div className="w-20">
+                            <label className="text-[9px] uppercase font-bold text-earth-500 block mb-0.5">Unit</label>
+                            <select
+                              id={`edit-unit-mob-${p.id}`}
+                              value={editSkuUnit}
+                              onChange={(e) => setEditSkuUnit(e.target.value as UnitType)}
+                              className="w-full bg-white border border-earth-300 rounded px-2 py-1 text-xs focus:border-sage-500 focus:ring-1 focus:ring-sage-500 cursor-pointer text-earth-900"
+                            >
+                              <option value="kg">kg</option>
+                              <option value="L">L</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <button
+                            type="button"
+                            id={`save-btn-mob-${p.id}`}
+                            onClick={() => {
+                              if (!editName.trim()) return;
+                              const updated = products.map((item) =>
+                                item.id === p.id ? { 
+                                  ...item, 
+                                  name: editName.trim(), 
+                                  sku: editSku.trim() || `${editSkuWeight} ${editSkuUnit}`, 
+                                  skuWeight: editSkuWeight, 
+                                  skuUnit: editSkuUnit 
+                                } : item
+                              );
+                              updateProductsAndPersist(updated);
+                              setEditingProductId(null);
+                            }}
+                            className="px-2.5 py-1 text-[10px] font-bold bg-sage-500 text-white rounded hover:bg-sage-600 transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Check className="w-3 h-3" /> Save
+                          </button>
+                          <button
+                            type="button"
+                            id={`cancel-btn-mob-${p.id}`}
+                            onClick={() => setEditingProductId(null)}
+                            className="px-2.5 py-1 text-[10px] font-bold bg-earth-200 text-earth-700 rounded hover:bg-earth-300 transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <X className="w-3 h-3" /> Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-earth-900 text-sm leading-tight font-serif uppercase break-words">{p.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            <span className="bg-earth-100 text-earth-500 font-mono text-[9px] px-1.5 py-0.5 rounded border border-earth-200/50">
+                              {p.id}
+                            </span>
+                            <span className="text-earth-500 text-[11px] font-medium leading-none">
+                              {p.sku} ({p.skuWeight} {p.skuUnit})
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          id={`edit-btn-mob-trigger-${p.id}`}
+                          onClick={() => {
+                            setEditingProductId(p.id);
+                            setEditName(p.name);
+                            setEditSku(p.sku);
+                            setEditSkuWeight(p.skuWeight);
+                            setEditSkuUnit(p.skuUnit);
+                          }}
+                          className="p-2 rounded bg-earth-100 text-earth-600 active:bg-sage-100 active:text-sage-700 transition-all cursor-pointer flex items-center gap-1 border border-earth-200 shrink-0"
+                          title="Edit product name or packing details"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-bold">Edit</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Body: Interactive Inputs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-earth-700">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-earth-450 block mb-1">Category</span>
+                      <span className="inline-block font-semibold text-earth-600 bg-earth-100/50 px-2.5 py-1 rounded border border-earth-200/20">
+                        {p.category}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-earth-450 block mb-1">Dealer Price (INR)</span>
+                      <div className="flex items-center gap-1.5 max-w-[150px]">
+                        <span className="text-earth-500 font-bold">₹</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={p.dealerPrice}
+                          onChange={(e) => {
+                            const newPrice = parseFloat(e.target.value) || 0;
+                            const updated = products.map((item) =>
+                              item.id === p.id ? { ...item, dealerPrice: newPrice } : item
+                            );
+                            updateProductsAndPersist(updated);
+                          }}
+                          className="w-full bg-white border border-earth-250 py-1 px-2.5 text-xs font-mono font-bold rounded-lg outline-none text-earth-900 focus:border-sage-500 focus:ring-1 focus:ring-sage-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t border-earth-100 pt-3">
+                      <span className="text-[10px] uppercase font-bold text-earth-450 block mb-1">Discount Unit</span>
+                      <select
+                        value={p.volumeDiscountRule ? p.volumeDiscountRule.unit : 'none'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const updated = products.map((item) => {
+                            if (item.id === p.id) {
+                              if (val === 'none') {
+                                return { ...item, volumeDiscountRule: null };
+                              } else {
+                                return {
+                                  ...item,
+                                  volumeDiscountRule: {
+                                    unit: val as 'MT' | 'kg' | 'L',
+                                    brackets: item.volumeDiscountRule?.brackets || []
+                                  }
+                                };
+                              }
+                            }
+                            return item;
+                          });
+                          updateProductsAndPersist(updated);
+                        }}
+                        className="w-full max-w-[150px] bg-white border border-earth-250 text-xs px-2 py-1.5 rounded-lg outline-none text-earth-900 font-medium cursor-pointer"
+                      >
+                        <option value="none">No Discount</option>
+                        <option value="MT">MT (Metric Ton)</option>
+                        <option value="kg">kg (Kilogram)</option>
+                        <option value="L">L (Liter)</option>
+                      </select>
+                    </div>
+
+                    <div className="border-t border-earth-100 pt-3 sm:col-span-1">
+                      <span className="text-[10px] uppercase font-bold text-earth-450 block mb-1.5">Active Slab Ranges</span>
+                      {p.volumeDiscountRule ? (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap gap-1 items-center">
+                            {p.volumeDiscountRule.brackets.map((b, idx) => (
+                              <span
+                                key={idx}
+                                className="bg-sage-50 border border-sage-200 text-sage-800 rounded px-1.5 py-0.5 text-[9px] font-bold font-mono"
+                              >
+                                {b.min}+ {p.volumeDiscountRule?.unit} → {b.discountPercent}%
+                              </span>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openSlabEditor(p)}
+                            className="w-full sm:w-auto px-3 py-1.5 text-center text-xs font-bold text-sage-600 bg-white hover:bg-sage-100 border border-sage-300 rounded hover:border-sage-500 transition-all cursor-pointer flex items-center justify-center gap-1"
+                          >
+                            Configure Brackets ({p.volumeDiscountRule.brackets.length})
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-1.5 text-earth-450 italic leading-normal">
+                          <span>No automatic volume discount rule active.</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const baseRule = {
+                                unit: p.skuUnit === 'kg' ? 'kg' as const : 'L' as const,
+                                brackets: [{ min: p.skuUnit === 'kg' ? 100 : 50, max: Infinity, discountPercent: 5 }]
+                              };
+                              const updated = products.map((item) =>
+                                item.id === p.id ? { ...item, volumeDiscountRule: baseRule } : item
+                              );
+                              updateProductsAndPersist(updated);
+                            }}
+                            className="w-full sm:w-auto text-center not-italic px-3 py-1.5 text-xs font-bold text-sage-600 border border-dashed border-earth-250 rounded-lg bg-transparent cursor-pointer hover:bg-earth-100/50"
+                          >
+                            ＋ Initialize Slab Discounts
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="p-8 text-center text-earth-500 italic font-mono bg-white rounded-xl border border-earth-200">
+                No product matches search terms. Try clearing search filters or importing the template list.
+              </div>
+            )}
           </div>
         </main>
       )}
