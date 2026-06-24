@@ -4,6 +4,7 @@
  */
 
 import { Product, MonthlySelection, DiscountSettings, ProfitResult } from './types';
+import { MASTER_PRODUCTS } from './data';
 
 /**
  * Returns the total volume value of a product given its monthly quantity.
@@ -100,15 +101,25 @@ export function calculateProfitSingle(
 
   // 2. Determine volume-discounted price per unit
   let volumeDiscountedPrice = product.dealerPrice * (1 - volPercent / 100);
+  let usedFixedPrice = false;
   
-  // Apply precisions from original pricing sheet if matches
-  if (product.fixedVolumePrices && product.fixedVolumePrices[volPercent] !== undefined) {
+  const masterProd = MASTER_PRODUCTS.find(p => p.id.toLowerCase() === product.id.toLowerCase());
+  const isDefaultPrice = masterProd ? masterProd.dealerPrice === product.dealerPrice : true;
+
+  if (isDefaultPrice && product.fixedVolumePrices && product.fixedVolumePrices[volPercent] !== undefined) {
     // If the PDF listed a specific whole price for that bracket, use it
     const fixedRowPrice = product.fixedVolumePrices[volPercent];
     volumeDiscountedPrice = fixedRowPrice;
+    usedFixedPrice = true;
   }
   
-  const volumeDiscountAmount = product.dealerPrice - volumeDiscountedPrice;
+  const volumeDiscountAmount = isDefaultPrice && usedFixedPrice
+    ? (product.dealerPrice - volumeDiscountedPrice)
+    : (product.dealerPrice * (volPercent / 100));
+
+  if (!usedFixedPrice) {
+    volumeDiscountedPrice = product.dealerPrice - volumeDiscountAmount;
+  }
 
   // 3. Additional Discount (AD) — calculated from base Dealer Price
   const adPercent = overrideAdPercent !== undefined ? overrideAdPercent : settings.adPercent;
@@ -161,6 +172,7 @@ export function calculateProfitSingle(
     profitMarginPercent,
     customSellingPrice: hasCustomPrice ? customSellingPrice : undefined,
     sellingPrice,
+    usedFixedPrice,
   };
 }
 

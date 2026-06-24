@@ -75,4 +75,5 @@ export interface ProfitResult {
   profitMarginPercent: number;
   customSellingPrice?: number;
   sellingPrice: number;
+  usedFixedPrice?: boolean;
 }

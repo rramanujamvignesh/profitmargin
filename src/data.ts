@@ -94,6 +94,17 @@ export const STRONG_BLOCK_RULE: VolumeDiscountRule = {
 export const MASTER_PRODUCTS: Product[] = [
   // 1. TILE FIX (20 KG)
   {
+    id: 'tf-basic-hw200-20',
+    name: 'TILE FIX-BASIC - HW 200',
+    sku: '20 kg Bag',
+    skuWeight: 20,
+    skuUnit: 'kg',
+    dealerPrice: 220,
+    category: 'Tile Fix',
+    volumeDiscountRule: MT_DISCOUNT_RULE,
+    fixedVolumePrices: { 8: 202, 9: 199, 10: 197, 11: 194, 12: 192, 13: 189, 15: 184 },
+  },
+  {
     id: 'tf-slurry-hw207-20',
     name: 'TILE FIX-SLURRY-HW 207',
     sku: '20 kg Bag',
@@ -224,6 +235,17 @@ export const MASTER_PRODUCTS: Product[] = [
     dealerPrice: 300,
     category: 'Tile Fix',
     volumeDiscountRule: null, // TBA
+  },
+  {
+    id: 'tf-basic-hw200-40',
+    name: 'TILE FIX-BASIC - HW 200',
+    sku: '40 kg Bag',
+    skuWeight: 40,
+    skuUnit: 'kg',
+    dealerPrice: 390,
+    category: 'Tile Fix',
+    volumeDiscountRule: MT_DISCOUNT_RULE,
+    fixedVolumePrices: { 8: 358, 9: 354, 10: 351, 11: 347, 12: 343, 13: 339, 15: 331 },
   },
   {
     id: 'tf-slurry-hw207-40',

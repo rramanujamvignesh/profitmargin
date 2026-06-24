@@ -105,10 +105,24 @@ export default function App() {
     const colRef = collection(db, "products");
     const unsubscribe = onSnapshot(colRef, async (snapshot) => {
       if (snapshot.empty) {
-        // If Firestore is empty, populate with MASTER_PRODUCTS automatically
+        // If Firestore is empty, check if we have any custom products in localStorage first
+        let seedProducts = MASTER_PRODUCTS;
+        const saved = localStorage.getItem('commercial_master_products_v3');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              seedProducts = parsed;
+              console.log("Seeding Firestore from existing localStorage products:", seedProducts.length);
+            }
+          } catch (e) {
+            console.error("Error parsing saved products for seeding:", e);
+          }
+        }
+
         try {
           const batch = writeBatch(db);
-          MASTER_PRODUCTS.forEach((p) => {
+          seedProducts.forEach((p) => {
             const docRef = doc(db, "products", p.id);
             batch.set(docRef, p);
           });
@@ -118,9 +132,29 @@ export default function App() {
         }
       } else {
         const loadedProducts: Product[] = [];
+        const loadedIds = new Set<string>();
         snapshot.forEach((doc) => {
-          loadedProducts.push(doc.data() as Product);
+          const p = doc.data() as Product;
+          loadedProducts.push(p);
+          loadedIds.add(p.id.toLowerCase());
         });
+
+        // Auto-heal/sync missing MASTER_PRODUCTS (e.g. if we added new products like HW 200)
+        const missingMasterProducts = MASTER_PRODUCTS.filter(mp => !loadedIds.has(mp.id.toLowerCase()));
+        if (missingMasterProducts.length > 0) {
+          console.log(`Syncing ${missingMasterProducts.length} missing master products to Firestore...`);
+          try {
+            const batch = writeBatch(db);
+            missingMasterProducts.forEach((mp) => {
+              const docRef = doc(db, "products", mp.id);
+              batch.set(docRef, mp);
+              loadedProducts.push(mp);
+            });
+            await batch.commit();
+          } catch (err) {
+            console.error("Error syncing missing master products:", err);
+          }
+        }
 
         // Maintain original category order of MASTER_PRODUCTS
         const orderMap = new Map<string, number>();
@@ -742,51 +776,66 @@ export default function App() {
           const productId = String(rowId).trim();
           const prodIndex = updatedProductsList.findIndex(p => p.id.toLowerCase() === productId.toLowerCase());
 
+          // Parse Dealer Price
+          const dealerPriceVal = row['Dealer Price (INR)'] || row['Dealer Price'] || row['price'] || row['Rate'] || row['Standard Dealer Price (INR)'];
+          let parsedDealerPrice = 0;
+          if (dealerPriceVal !== undefined && dealerPriceVal !== null && !isNaN(Number(dealerPriceVal))) {
+            parsedDealerPrice = parseFloat(String(dealerPriceVal));
+          }
+
+          // Parse Discount Unit
+          const discUnitVal = String(row['Discount Unit (MT, kg, L)'] || row['Discount Unit'] || row['Unit'] || row['Rule Unit'] || row['Volume Unit'] || '').trim();
+
+          // Compile Slabs/Brackets
+          const brackets: any[] = [];
+          for (let i = 1; i <= 7; i++) {
+            const minVal = row[`Slab ${i} Min Volume`];
+            const pctVal = row[`Slab ${i} Discount %`];
+
+            if (minVal !== undefined && minVal !== null && minVal !== '' && !isNaN(Number(minVal)) &&
+                pctVal !== undefined && pctVal !== null && pctVal !== '' && !isNaN(Number(pctVal))) {
+              brackets.push({
+                min: parseFloat(String(minVal)),
+                max: Infinity,
+                discountPercent: parseFloat(String(pctVal))
+              });
+            }
+          }
+
+          // Sort brackets by min value ascending
+          brackets.sort((a, b) => a.min - b.min);
+
+          // Reconstruct max value of each slab to match the next slab's minimum
+          for (let i = 0; i < brackets.length; i++) {
+            if (i < brackets.length - 1) {
+              brackets[i].max = brackets[i + 1].min - 0.01;
+            } else {
+              brackets[i].max = Infinity;
+            }
+          }
+
+          let volumeDiscountRule = null;
+          if (brackets.length > 0) {
+            volumeDiscountRule = {
+              unit: (discUnitVal === 'MT' || discUnitVal === 'kg' || discUnitVal === 'L') ? discUnitVal as 'MT' | 'kg' | 'L' : 'kg' as const,
+              brackets: brackets
+            };
+          }
+
           if (prodIndex !== -1) {
             const currentItem = updatedProductsList[prodIndex];
             const updatedItem = { ...currentItem };
 
-            // 1. Parse Dealer Price
-            const dealerPriceVal = row['Dealer Price (INR)'] || row['Dealer Price'] || row['price'] || row['Rate'] || row['Standard Dealer Price (INR)'];
             if (dealerPriceVal !== undefined && dealerPriceVal !== null && !isNaN(Number(dealerPriceVal))) {
-              updatedItem.dealerPrice = parseFloat(String(dealerPriceVal));
+              updatedItem.dealerPrice = parsedDealerPrice;
             }
 
-            // 2. Parse Discount Unit
-            const discUnitVal = String(row['Discount Unit (MT, kg, L)'] || row['Discount Unit'] || row['Unit'] || row['Rule Unit'] || row['Volume Unit'] || '').trim();
-            const validUnit: 'MT' | 'kg' | 'L' = (discUnitVal === 'MT' || discUnitVal === 'kg' || discUnitVal === 'L') ? discUnitVal : (currentItem.skuUnit === 'kg' ? 'kg' : 'L');
-
-            // 3. Compile Slabs/Brackets
-            const brackets: any[] = [];
-            for (let i = 1; i <= 7; i++) {
-              const minVal = row[`Slab ${i} Min Volume`];
-              const pctVal = row[`Slab ${i} Discount %`];
-
-              if (minVal !== undefined && minVal !== null && minVal !== '' && !isNaN(Number(minVal)) &&
-                  pctVal !== undefined && pctVal !== null && pctVal !== '' && !isNaN(Number(pctVal))) {
-                brackets.push({
-                  min: parseFloat(String(minVal)),
-                  max: Infinity,
-                  discountPercent: parseFloat(String(pctVal))
-                });
-              }
-            }
-
-            // Sort brackets by min value ascending
-            brackets.sort((a, b) => a.min - b.min);
-
-            // Reconstruct max value of each slab to match the next slab's minimum
-            for (let i = 0; i < brackets.length; i++) {
-              if (i < brackets.length - 1) {
-                brackets[i].max = brackets[i + 1].min - 0.01;
-              } else {
-                brackets[i].max = Infinity;
-              }
-            }
-
-            if (brackets.length > 0) {
+            if (volumeDiscountRule) {
+              const finalUnit = (discUnitVal === 'MT' || discUnitVal === 'kg' || discUnitVal === 'L')
+                ? (discUnitVal as 'MT' | 'kg' | 'L')
+                : (currentItem.skuUnit === 'kg' ? 'kg' as const : 'L' as const);
               updatedItem.volumeDiscountRule = {
-                unit: validUnit,
+                unit: finalUnit,
                 brackets: brackets
               };
             } else {
@@ -794,6 +843,48 @@ export default function App() {
             }
 
             updatedProductsList[prodIndex] = updatedItem;
+            updatedCount++;
+          } else {
+            // Create brand new product from spreadsheet row!
+            let name = String(row['Product Name'] || row['Name'] || row['name'] || '').trim();
+            if (!name) {
+              name = productId.toUpperCase();
+            }
+
+            const categoryRaw = String(row['Category'] || row['category'] || 'Special Products').trim();
+            const validCategories: ProductCategory[] = [
+              'Tile Fix',
+              'Wall Putty & Block Fix',
+              'Tile Grouts',
+              'Epoxy Tile Grouts',
+              'Waterproofing Coating',
+              'Bonding Agents',
+              'Liquid Waterproofing (IWP)',
+              'Strong Block / RAMCO',
+              'Special Products'
+            ];
+            const category = validCategories.find(c => c.toLowerCase() === categoryRaw.toLowerCase()) || 'Special Products';
+
+            const skuUnitRaw = String(row['SKU Unit'] || row['skuUnit'] || 'kg').trim().toLowerCase();
+            const skuUnit: UnitType = (skuUnitRaw === 'l' || skuUnitRaw === 'L') ? 'L' : 'kg';
+
+            const skuWeightVal = row['SKU Weight'] || row['skuWeight'] || 20;
+            const skuWeight = !isNaN(Number(skuWeightVal)) ? parseFloat(String(skuWeightVal)) : 20;
+
+            const sku = String(row['SKU'] || row['sku'] || `${skuWeight} ${skuUnit} Bag`).trim();
+
+            const newProduct: Product = {
+              id: productId,
+              name: name.toUpperCase(),
+              sku: sku,
+              skuWeight: skuWeight,
+              skuUnit: skuUnit,
+              dealerPrice: parsedDealerPrice,
+              category: category,
+              volumeDiscountRule: volumeDiscountRule
+            };
+
+            updatedProductsList.push(newProduct);
             updatedCount++;
           }
         });
@@ -1722,7 +1813,7 @@ export default function App() {
                                     </div>
                                     <div>
                                       [-] Vol Disc: -{calcResult.volumeDiscountPercent}% Amount = <span className="text-earth-950 font-bold">₹{calcResult.volumeDiscountAmount.toFixed(1)}</span>
-                                      {product.fixedVolumePrices && product.fixedVolumePrices[calcResult.volumeDiscountPercent] && (
+                                      {calcResult.usedFixedPrice && product.fixedVolumePrices && product.fixedVolumePrices[calcResult.volumeDiscountPercent] !== undefined && (
                                         <span className="text-amber-700 block text-[10px] font-sans mt-0.5 font-semibold">
                                           *Uses rounded company table price directly: ₹{product.fixedVolumePrices[calcResult.volumeDiscountPercent]}
                                         </span>
