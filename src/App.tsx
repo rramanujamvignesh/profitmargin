@@ -1346,10 +1346,30 @@ export default function App() {
                 🛠️ Backend Pricing & Discount Sheet
               </button>
             </nav>
-            {activeTab === 'backend' && (
+            {activeTab === 'backend' ? (
               <span className="text-[10px] font-bold bg-sage-100 text-sage-700 border border-sage-200 px-2.5 py-1 rounded-full font-mono uppercase">
                 Active Master Override Mode
               </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("This will clear any stale browser cache, purge unregistered PWA service workers, reset local database storage, and perform a clean hard-reload of the app. Continue?")) {
+                    if ((window as any).forceUpdateApp) {
+                      (window as any).forceUpdateApp();
+                    } else {
+                      localStorage.clear();
+                      sessionStorage.clear();
+                      window.location.reload();
+                    }
+                  }
+                }}
+                className="my-2 px-2.5 py-1.5 text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/60 rounded-lg border border-rose-200 transition-all flex items-center gap-1 cursor-pointer select-none"
+                title="Purge cache, unregister service workers, and force download the absolute newest version"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-rose-500" />
+                <span>Fix Mobile Cache / Hard Reload</span>
+              </button>
             )}
           </div>
         </div>
