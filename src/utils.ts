@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Product, MonthlySelection, DiscountSettings, ProfitResult } from './types';
+import { Product, MonthlySelection, DiscountSettings, ProfitResult, VolumeDiscountRule } from './types';
 import { MASTER_PRODUCTS } from './data';
 
 /**
@@ -188,15 +188,40 @@ export function getCategoryGroup(category: string): string {
 }
 
 /**
+ * Normalizes a VolumeDiscountRule deterministically, ignoring key order or floating precision differences.
+ */
+export function normalizeVolumeDiscountRule(rule?: VolumeDiscountRule | null): string {
+  if (!rule) return '';
+  const unit = rule.unit || 'none';
+  const brackets = rule.brackets || [];
+  // Deterministic string representation, sorted by min
+  const bracketsStr = [...brackets]
+    .sort((a, b) => a.min - b.min)
+    .map(b => `${Number(b.min).toFixed(4)}:${Number(b.max).toFixed(4)}:${Number(b.discountPercent).toFixed(4)}`)
+    .join('|');
+  return `${unit}[${bracketsStr}]`;
+}
+
+/**
+ * Normalizes fixedVolumePrices Record deterministically.
+ */
+export function normalizeFixedVolumePrices(prices?: Record<number, number> | null): string {
+  if (!prices) return '';
+  const sortedKeys = Object.keys(prices)
+    .map(Number)
+    .sort((a, b) => a - b);
+  return sortedKeys.map(k => `${k}:${Number(prices[k]).toFixed(4)}`).join(',');
+}
+
+/**
  * Returns a unique grouping key combining Category Group, SKU Unit, and structural Volume Discount slab.
  * This ensures that products are pooled only if they share the same group, unit, and exact volume discount brackets.
  */
 export function getVolumeGroupKey(product: Product): string {
   if (!product.volumeDiscountRule) return '';
   const catGroup = getCategoryGroup(product.category);
-  const unit = product.volumeDiscountRule.unit;
-  const bracketsStr = JSON.stringify(product.volumeDiscountRule.brackets);
-  return `${catGroup}|${unit}|${bracketsStr}`;
+  const ruleStr = normalizeVolumeDiscountRule(product.volumeDiscountRule);
+  return `${catGroup}|${ruleStr}`;
 }
 
 /**
@@ -246,5 +271,28 @@ export function getGroupVolumeDiscountPercent(
   }
 
   return 0;
+}
+
+/**
+ * Compares two Product objects deterministically, ignoring key order in rules or prices.
+ */
+export function isProductEqual(p1: Product, p2: Product): boolean {
+  if (p1.id !== p2.id) return false;
+  if (p1.name !== p2.name) return false;
+  if (p1.sku !== p2.sku) return false;
+  if (p1.skuWeight !== p2.skuWeight) return false;
+  if (p1.skuUnit !== p2.skuUnit) return false;
+  if (p1.dealerPrice !== p2.dealerPrice) return false;
+  if (p1.category !== p2.category) return false;
+  
+  const rule1 = normalizeVolumeDiscountRule(p1.volumeDiscountRule);
+  const rule2 = normalizeVolumeDiscountRule(p2.volumeDiscountRule);
+  if (rule1 !== rule2) return false;
+
+  const prices1 = normalizeFixedVolumePrices(p1.fixedVolumePrices);
+  const prices2 = normalizeFixedVolumePrices(p2.fixedVolumePrices);
+  if (prices1 !== prices2) return false;
+
+  return true;
 }
 

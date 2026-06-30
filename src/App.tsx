@@ -22,7 +22,10 @@ import {
   getCategoryGroup,
   getActiveGroupVolumes,
   getGroupVolumeDiscountPercent,
-  getVolumeGroupKey
+  getVolumeGroupKey,
+  normalizeVolumeDiscountRule,
+  normalizeFixedVolumePrices,
+  isProductEqual
 } from './utils';
 import { 
   Calculator, 
@@ -156,6 +159,53 @@ export default function App() {
           }
         }
 
+        // Auto-heal out-of-sync product schemas, brackets, categories, or SKU specifications
+        const outOfSyncProducts: Product[] = [];
+        loadedProducts.forEach((p) => {
+          const master = MASTER_PRODUCTS.find(mp => mp.id.toLowerCase() === p.id.toLowerCase());
+          if (master) {
+            const masterRuleStr = normalizeVolumeDiscountRule(master.volumeDiscountRule);
+            const loadedRuleStr = normalizeVolumeDiscountRule(p.volumeDiscountRule);
+            const masterPricesStr = normalizeFixedVolumePrices(master.fixedVolumePrices);
+            const loadedPricesStr = normalizeFixedVolumePrices(p.fixedVolumePrices);
+
+            if (
+              p.category !== master.category ||
+              masterRuleStr !== loadedRuleStr ||
+              masterPricesStr !== loadedPricesStr ||
+              p.skuWeight !== master.skuWeight ||
+              p.skuUnit !== master.skuUnit
+            ) {
+              console.log(`[PWA Sync] Auto-healing out-of-sync product specs or brackets for ${p.id}...`);
+              const healedProduct = {
+                ...master,
+                dealerPrice: p.dealerPrice // Preserve custom dealerPrice edited in backend
+              };
+              outOfSyncProducts.push(healedProduct);
+
+              // Update in-memory reference immediately for instant correct calculation
+              const idx = loadedProducts.findIndex(lp => lp.id === p.id);
+              if (idx !== -1) {
+                loadedProducts[idx] = healedProduct;
+              }
+            }
+          }
+        });
+
+        if (outOfSyncProducts.length > 0) {
+          try {
+            const batch = writeBatch(db);
+            outOfSyncProducts.forEach((osp) => {
+              const docRef = doc(db, "products", osp.id);
+              batch.set(docRef, osp);
+            });
+            await batch.commit();
+            console.log(`[PWA Sync] Successfully synchronized and healed ${outOfSyncProducts.length} database specifications.`);
+          } catch (err) {
+            console.error("Error committing auto-healed schemas to Firestore:", err);
+          }
+        }
+
         // Maintain original category order of MASTER_PRODUCTS
         const orderMap = new Map<string, number>();
         MASTER_PRODUCTS.forEach((p, idx) => orderMap.set(p.id, idx));
@@ -199,7 +249,7 @@ export default function App() {
 
       newProducts.forEach((p) => {
         const existing = existingMap.get(p.id);
-        if (!existing || JSON.stringify(existing) !== JSON.stringify(p)) {
+        if (!existing || !isProductEqual(existing, p)) {
           const docRef = doc(db, "products", p.id);
           batch.set(docRef, p);
         }
@@ -211,37 +261,43 @@ export default function App() {
     }
   };
 
-  const handleResetToDefaultPricing = async () => {
-    if (window.confirm("Are you sure you want to restore built-in master pricing & discount tiers? This will overwrite your current configurations.")) {
-      try {
-        const batch = writeBatch(db);
-        
-        // Delete current products in Firestore
-        products.forEach((p) => {
-          const docRef = doc(db, "products", p.id);
-          batch.delete(docRef);
-        });
+  const handleResetToDefaultPricing = () => {
+    showCustomConfirm(
+      "Restore Built-In Master Pricing?",
+      "Are you sure you want to restore built-in master pricing & discount tiers? This will overwrite your current Firestore and local configurations.",
+      async () => {
+        try {
+          const batch = writeBatch(db);
+          
+          // Delete current products in Firestore
+          products.forEach((p) => {
+            const docRef = doc(db, "products", p.id);
+            batch.delete(docRef);
+          });
 
-        // Set default MASTER_PRODUCTS
-        MASTER_PRODUCTS.forEach((p) => {
-          const docRef = doc(db, "products", p.id);
-          batch.set(docRef, p);
-        });
+          // Set default MASTER_PRODUCTS
+          MASTER_PRODUCTS.forEach((p) => {
+            const docRef = doc(db, "products", p.id);
+            batch.set(docRef, p);
+          });
 
-        await batch.commit();
+          await batch.commit();
 
-        setPricingImportStatus({
-          type: 'success',
-          message: 'Reverted pricing & discount definitions to default settings.'
-        });
-      } catch (err) {
-        console.error("Error resetting Firestore products:", err);
-        setPricingImportStatus({
-          type: 'error',
-          message: 'Failed to reset Firestore: ' + (err as Error).message
-        });
+          setPricingImportStatus({
+            type: 'success',
+            message: 'Reverted pricing & discount definitions to default settings.'
+          });
+          showCustomAlert("Database Restored", "Built-in master pricing & discount tiers have been successfully restored.");
+        } catch (err) {
+          console.error("Error resetting Firestore products:", err);
+          setPricingImportStatus({
+            type: 'error',
+            message: 'Failed to reset Firestore: ' + (err as Error).message
+          });
+          showCustomAlert("Database Error", "Failed to reset Firestore: " + (err as Error).message);
+        }
       }
-    }
+    );
   };
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -354,6 +410,42 @@ export default function App() {
   const [editingProductSlabs, setEditingProductSlabs] = useState<Product | null>(null);
   const [tempSlabs, setTempSlabs] = useState<{ min: number; discountPercent: number }[]>([]);
   const [tempUnit, setTempUnit] = useState<'MT' | 'kg' | 'L'>('kg');
+
+  // Unblocked Custom Dialog / Confirm / Alert System
+  const [customDialog, setCustomDialog] = useState<{
+    type: 'confirm' | 'alert';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showCustomAlert = (title: string, message: string) => {
+    setCustomDialog({
+      type: 'alert',
+      title,
+      message,
+      confirmText: 'OK',
+      onConfirm: () => setCustomDialog(null),
+    });
+  };
+
+  const showCustomConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setCustomDialog({
+      type: 'confirm',
+      title,
+      message,
+      confirmText: 'Continue',
+      cancelText: 'Cancel',
+      onConfirm: () => {
+        setCustomDialog(null);
+        onConfirm();
+      },
+      onCancel: () => setCustomDialog(null),
+    });
+  };
 
   // Product info editing states
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -583,7 +675,7 @@ export default function App() {
   const handleShareScreenshot = () => {
     const activeItems = activeCalculations.filter(calc => calc.quantity > 0);
     if (activeItems.length === 0) {
-      alert("No active items in order summary to screenshot. Please adjust quantities of some items above.");
+      showCustomAlert("No Active Items", "No active items in order summary to screenshot. Please adjust quantities of some items above.");
       return;
     }
 
@@ -1354,15 +1446,19 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm("This will clear any stale browser cache, purge unregistered PWA service workers, reset local database storage, and perform a clean hard-reload of the app. Continue?")) {
-                    if ((window as any).forceUpdateApp) {
-                      (window as any).forceUpdateApp();
-                    } else {
-                      localStorage.clear();
-                      sessionStorage.clear();
-                      window.location.reload();
+                  showCustomConfirm(
+                    "Fix Mobile Cache & Hard Reload?",
+                    "This will unregister any stale Service Workers, purge cached app files, reset local simulator states, and force a clean reload from the server. This fixes outdated volume math and pricing calculations instantly.",
+                    async () => {
+                      if ((window as any).forceUpdateApp) {
+                        await (window as any).forceUpdateApp();
+                      } else {
+                        localStorage.clear();
+                        sessionStorage.clear();
+                        window.location.reload();
+                      }
                     }
-                  }
+                  );
                 }}
                 className="my-2 px-2.5 py-1.5 text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/60 rounded-lg border border-rose-200 transition-all flex items-center gap-1 cursor-pointer select-none"
                 title="Purge cache, unregister service workers, and force download the absolute newest version"
@@ -1598,6 +1694,14 @@ export default function App() {
                     // Get Slab recommendations
                     const nextSlabAdvice = getNextSlabSuggestion(product, qty, customPrice, calcResult.totalProfit);
 
+                    const groupKey = getVolumeGroupKey(product);
+                    const groupVolume = groupVolumes[groupKey] || 0;
+                    const ruleUnit = product.volumeDiscountRule?.unit || '';
+                    const sameGroupActiveCount = products.filter(p => {
+                      const q = quantities[p.id] || 0;
+                      return q > 0 && getVolumeGroupKey(p) === groupKey;
+                    }).length;
+
                     return (
                       <motion.div
                         layout
@@ -1749,20 +1853,34 @@ export default function App() {
                             
                             {/* Cumulative volume calculations & indicators */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                              <div className="bg-white p-2.5 rounded-md border border-earth-200 shadow-2xs">
-                                <span className="text-earth-400 block text-[10px] uppercase font-bold tracking-wider">Volume Order</span>
-                                <span className="font-semibold text-earth-700 font-mono mt-0.5 block font-extrabold">
-                                  {calcResult.totalWeightUnit}
-                                </span>
-                              </div>
-                              <div className="bg-white p-2.5 rounded-md border border-earth-200 shadow-2xs">
-                                <span className="text-earth-400 block text-[10px] uppercase font-bold tracking-wider">Vol Discount</span>
-                                <span className="font-bold text-sage-600 mt-0.5 block flex items-center gap-1">
-                                  {calcResult.volumeDiscountPercent}% 
-                                  <span className="text-[10px] text-earth-400 font-normal">
-                                    (-₹{calcResult.volumeDiscountAmount.toFixed(1)}/u)
+                              <div className="bg-white p-2.5 rounded-md border border-earth-200 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                  <span className="text-earth-400 block text-[10px] uppercase font-bold tracking-wider">Volume Order</span>
+                                  <span className="font-semibold text-earth-700 font-mono mt-0.5 block font-extrabold">
+                                    {calcResult.totalWeightUnit}
                                   </span>
-                                </span>
+                                </div>
+                                {sameGroupActiveCount > 1 && (
+                                  <span className="text-[9px] text-sage-600 font-medium mt-1 pt-1 border-t border-earth-100 block">
+                                    Group Total: {groupVolume.toFixed(2)} {ruleUnit}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="bg-white p-2.5 rounded-md border border-earth-200 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                  <span className="text-earth-400 block text-[10px] uppercase font-bold tracking-wider">Vol Discount</span>
+                                  <span className="font-bold text-sage-600 mt-0.5 block flex items-center gap-1">
+                                    {calcResult.volumeDiscountPercent}% 
+                                    <span className="text-[10px] text-earth-400 font-normal">
+                                      (-₹{calcResult.volumeDiscountAmount.toFixed(1)}/u)
+                                    </span>
+                                  </span>
+                                </div>
+                                {sameGroupActiveCount > 1 && (
+                                  <span className="text-[9px] text-sage-600 font-bold mt-1 pt-1 border-t border-earth-100 block">
+                                    Pooled ({sameGroupActiveCount} variants)
+                                  </span>
+                                )}
                               </div>
                               <div className="bg-white p-2.5 rounded-md border border-earth-200 shadow-2xs">
                                 <span className="text-earth-400 block text-[10px] uppercase font-bold tracking-wider">Net Unit Buy</span>
@@ -3469,10 +3587,10 @@ export default function App() {
                           const blob = await response.blob();
                           const item = new ClipboardItem({ [blob.type]: blob });
                           await navigator.clipboard.write([item]);
-                          alert("📋 Image successfully copied to clipboard! You can paste/send it anywhere.");
+                          showCustomAlert("Copied Successfully", "📋 Image successfully copied to clipboard! You can paste/send it anywhere.");
                         } catch (err) {
                           console.error("Clipboard write blocked:", err);
-                          alert("Clipboard copy is blocked by browser restrictions. Please click 'Download Image' instead.");
+                          showCustomAlert("Copy Blocked", "Clipboard copy is blocked by browser restrictions. Please click 'Download Image' instead.");
                         }
                       }}
                       className="px-4 py-1.5 text-xs text-earth-800 font-bold bg-white border border-earth-300 hover:bg-earth-50 rounded-lg shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
@@ -3511,11 +3629,11 @@ export default function App() {
                               text: 'Please review our commercial profit estimation statement.'
                             });
                           } else {
-                            alert("Sharing of files is not natively supported in this browser environment. Please use 'Download' or 'Copy' instead.");
+                            showCustomAlert("Sharing Unsupported", "Sharing of files is not natively supported in this browser environment. Please use 'Download' or 'Copy' instead.");
                           }
                         } catch (err) {
                           console.warn("Share API error:", err);
-                          alert("Web Sharing API is disabled or blocked in this workspace preview. Please use 'Download Image' or 'Copy to Clipboard'.");
+                          showCustomAlert("Share API Blocked", "Web Sharing API is disabled or blocked in this workspace preview. Please use 'Download Image' or 'Copy to Clipboard'.");
                         }
                       }}
                       className="px-4 py-1.5 text-xs text-white bg-sage-500 hover:bg-sage-600 active:bg-sage-700 font-bold rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer uppercase tracking-wider"
@@ -3690,6 +3808,64 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* CUSTOM DIALOG / CONFIRMATION MODAL & TOAST OVERLAYS */}
+      {customDialog && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs select-none">
+          <div className="bg-white rounded-2xl border border-earth-200 shadow-2xl max-w-md w-full overflow-hidden p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className={`p-3 rounded-full shrink-0 ${
+                customDialog.type === 'confirm' 
+                  ? 'bg-amber-50 text-amber-600 border border-amber-100' 
+                  : 'bg-sage-50 text-sage-600 border border-sage-100'
+              }`}>
+                {customDialog.type === 'confirm' ? (
+                  <AlertCircle className="w-6 h-6 text-amber-600" />
+                ) : (
+                  <Info className="w-6 h-6 text-sage-600" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold text-earth-900 font-sans tracking-tight">
+                  {customDialog.title}
+                </h3>
+                <p className="mt-2 text-xs text-earth-600 leading-relaxed font-medium">
+                  {customDialog.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5">
+              {customDialog.type === 'confirm' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customDialog.onCancel) customDialog.onCancel();
+                    setCustomDialog(null);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-earth-600 hover:text-earth-800 bg-earth-50 hover:bg-earth-100 rounded-xl border border-earth-200 transition-all cursor-pointer active:scale-95"
+                >
+                  {customDialog.cancelText || 'Cancel'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (customDialog.onConfirm) customDialog.onConfirm();
+                  setCustomDialog(null);
+                }}
+                className={`px-5 py-2 text-xs font-bold text-white rounded-xl transition-all cursor-pointer active:scale-95 shadow-xs ${
+                  customDialog.type === 'confirm'
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-sage-600 hover:bg-sage-700'
+                }`}
+              >
+                {customDialog.confirmText || 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FOOTER */}
       <footer className="bg-white border-t border-earth-200 text-center py-5 text-xs text-earth-500 mt-auto shrink-0 print:hidden">
